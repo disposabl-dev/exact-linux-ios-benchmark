@@ -63,12 +63,7 @@ if [[ -n "${SDK_RELAY:-}" ]]; then
   apply_job_environment
   bash .github/scripts/hosted-mobile/install-sdk.sh install
 else
-  bash .github/scripts/hosted-mobile/toolchain.sh &
-  tools=$!
-  EXACT="$HOME/work/_temp/exact-sdk" bash .github/scripts/hosted-mobile/prepare-apple-exact.sh ios bootstrap &
-  rust=$!
-  wait "$tools"
-  wait "$rust"
+  bash scripts/benchmark.sh public-tools
   apply_job_environment
   bash .github/scripts/hosted-mobile/install-public-sdk.sh
 fi
@@ -80,5 +75,5 @@ if [[ -n "${SDK_RELAY:-}" ]]; then
   apply_job_environment
 fi
 cd "$NATIVE_APP_DIR"
-bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
+EXACT="$HOME/work/_temp/exact-sdk" bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
 printf 'Box benchmark from container start to verified IPA: %ss\n' "$(( $(date +%s) - wall_start ))"

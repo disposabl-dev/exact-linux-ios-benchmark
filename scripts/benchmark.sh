@@ -36,6 +36,14 @@ case "${1:?expected a benchmark phase}" in
     for pid in "${pids[@]}"; do wait "$pid" || status=$?; done
     exit "$status"
     ;;
+  public-tools)
+    bash "$scripts/toolchain.sh" & tools_pid=$!
+    bash "$scripts/prepare-apple-exact.sh" ios bootstrap & rust_pid=$!
+    status=0
+    wait "$tools_pid" || status=$?
+    wait "$rust_pid" || status=$?
+    exit "$status"
+    ;;
   validate)
     bash .github/actions/exact-setup/scripts/setup-linux-ios.sh
     export PATH="$EXACT_APPLE_LLVM_BIN:$PATH"

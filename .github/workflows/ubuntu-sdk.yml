@@ -34,17 +34,11 @@ jobs:
         id: restore
         run: bash scripts/benchmark.sh restore
       - name: Install build tools and prepare Rust
-        run: |
-          bash .github/scripts/hosted-mobile/toolchain.sh &
-          tools=$!
-          bash .github/scripts/hosted-mobile/prepare-apple-exact.sh ios bootstrap &
-          rust=$!
-          wait "$tools"
-          wait "$rust"
+        run: bash scripts/benchmark.sh public-tools
       - name: Install the checksum-pinned iPhone SDK anonymously
         run: bash .github/scripts/hosted-mobile/install-public-sdk.sh
       - name: Check the Linux iPhone toolchain
         run: bash scripts/benchmark.sh validate
       - name: Build and verify the unsigned iPhone IPA
         working-directory: ${{ env.NATIVE_APP_DIR }}
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
+        run: EXACT="$HOME/work/_temp/exact-sdk" bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
