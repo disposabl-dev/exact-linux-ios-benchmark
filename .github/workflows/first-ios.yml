@@ -1,0 +1,97 @@
+name: Benchmark unsigned iOS on Ubuntu
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_relay:
+        description: HTTPS endpoint for one-time encrypted benchmark inputs
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  ios:
+    name: iOS (github-${{ matrix.cache }})
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        cache: [shared, no-compiler-cache]
+    env:
+      SDK_RELAY: ${{ inputs.sdk_relay }}
+      BENCHMARK_APP: github-${{ matrix.cache }}
+      EXACT_IOS_TOOL_DIR: /home/runner/_work/_temp/hosted-mobile-tools
+      CARGO_HOME: /home/runner/.cargo
+      BENCHMARK_TARGET: ios
+      EXACT_FEEDBACK: '0'
+      EXACT_FAST_UBUNTU_MIRROR: 1
+      EXACT_IOS_CACHE_PROBE: 'true'
+      EXACT_IOS_CACHE_MODE: restore
+      EXACT_IOS_FAST_PREVIEW: 'true'
+      EXACT_IOS_PARALLEL_SETUP: 'true'
+      EXACT_IOS_SWIFT_CACHE: 'true'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the input endpoint
+        run: |
+          [[ "$SDK_RELAY" == https://* && "$SDK_RELAY" != *[[:space:]]* ]]
+      - name: Confirm the runner has no app compiler outputs
+        run: |
+          test "$HOME" = /home/runner
+          test ! -e "$HOME/.cache/exact-native/ios-linux"
+          mkdir -p "$EXACT_IOS_TOOL_DIR"
+          echo "EXACT_IOS_COMPILER_DIR=$HOME/.cache/exact-native/ios-linux" >> "$GITHUB_ENV"
+      - id: recipient
+        name: Create a one-time SDK transfer key
+        run: |
+          umask 077
+          openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/sdk-recipient.key"
+          key=$(openssl pkey -in "$RUNNER_TEMP/sdk-recipient.key" -pubout -outform DER | openssl base64 -A)
+          test "${#key}" = 392
+          for part in {0..6}; do printf 'k%s=%s\n' "$part" "${key:part*64:64}"; done >> "$GITHUB_OUTPUT"
+      - name: SDK key 0 ${{ steps.recipient.outputs.k0 }}
+        run: ':'
+      - name: SDK key 1 ${{ steps.recipient.outputs.k1 }}
+        run: ':'
+      - name: SDK key 2 ${{ steps.recipient.outputs.k2 }}
+        run: ':'
+      - name: SDK key 3 ${{ steps.recipient.outputs.k3 }}
+        run: ':'
+      - name: SDK key 4 ${{ steps.recipient.outputs.k4 }}
+        run: ':'
+      - name: SDK key 5 ${{ steps.recipient.outputs.k5 }}
+        run: ':'
+      - name: SDK key 6 ${{ steps.recipient.outputs.k6 }}
+        run: ':'
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - name: Restore versioned Exact setup files from the publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/benchmark.sh restore
+      - name: Set up Swift, Rust and xTool
+        env:
+          EXACT_IOS_CACHE_DIGEST: ${{ steps.pin.outputs.ios-cas-cache-digest }}
+        run: bash scripts/benchmark.sh setup
+      - name: Install xTool SDK
+        run: bash .github/scripts/hosted-mobile/install-sdk.sh install
+      - name: Validate the toolchain and prepare the pinned compiler inputs
+        run: bash scripts/benchmark.sh validate
+      - name: Activate the shared Linux iOS compiler bundle
+        if: matrix.cache != 'no-compiler-cache'
+        run: bash scripts/benchmark.sh activate
+      - name: Build and verify device IPA
+        working-directory: ${{ env.NATIVE_APP_DIR }}
+        run: EXACT="$HOME/work/_temp/exact-sdk" bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
+      - name: Remove the temporary transfer key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ios-cache-passphrase" "$RUNNER_TEMP/sdk-recipient.key"

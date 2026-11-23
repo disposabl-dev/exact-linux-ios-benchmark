@@ -1,0 +1,12 @@
+--- a/packages/contacts/apple/ContactStore.swift
++++ b/packages/contacts/apple/ContactStore.swift
+@@ -357,7 +357,8 @@
+ @available(iOS 18, *)
+ private struct AccessPicker: View {
+     let done: ([String]) -> Void
+-    @State private var shown = true
++    private typealias PickerState = SwiftUI.State<Bool>
++    @PickerState private var shown = true
+     var body: some View {
+         Color.clear.contactAccessPicker(isPresented: $shown) { ids in done(ids) }
+             .onChange(of: shown) { _, now in if !now { done([]) } }

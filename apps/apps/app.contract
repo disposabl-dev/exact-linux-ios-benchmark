@@ -1,0 +1,38 @@
+use contactsStatus, selectContacts, ContactsStatus, ContactSelection from "@exact/contacts"
+use calendarStatus, showEventEditor, requestFullCalendarAccess, CalendarStatus, CalendarEvent, EventEditorResult from "@exact/calendar"
+
+fn travelReminder(): CalendarEvent = CalendarEvent(id=none, uid=none, calendarId=none, title="Travel planning", description=some("Review your itinerary before departure."), start="2026-12-01T09:00:00", timeZone=some("UTC"), duration="PT30M", showWithoutTime=false, location=none, url=none, status="confirmed", freeBusyStatus="busy", recurrenceId=none, utcStart=none, utcEnd=none, apple=none)
+
+component TravelDesk
+  resource contacts = contactsStatus() as shape ContactsStatus else empty()
+  resource calendar = calendarStatus() as shape CalendarStatus else empty()
+  mutation companions as shape ContactSelection
+  mutation event as shape EventEditorResult
+  mutation access as shape CalendarStatus
+  action pickCompanion
+    send companions = selectContacts(properties=["name"], multiple=true)
+  action planReminder
+    send event = showEventEditor(event=travelReminder())
+  action requestCalendar
+    send access = requestFullCalendarAccess()
+  view
+    column gap=16 padding=24
+      text "Travel Desk" role="heading" font="-exact-large-title"
+      text "Choose who is coming and add a reminder for your trip."
+      button press=pickCompanion testId="pick-companion"
+        text "Choose companions"
+      match companions
+        case some(selection)
+          text `${selection.contacts.length} ${selection.contacts.length == 1 ? "companion" : "companions"} selected`
+        case none
+          text ""
+      button press=planReminder testId="plan-reminder"
+        text "Add travel reminder"
+      match event
+        case some(result)
+          text result.action
+        case none
+          text ""
+      button press=requestCalendar testId="request-calendar"
+        text "Allow calendar access"
+      text `Contacts access: ${contacts.access}. Calendar access: ${calendar.access}.`
