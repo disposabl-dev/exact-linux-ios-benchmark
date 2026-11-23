@@ -28,16 +28,22 @@ jobs:
         with:
           bun-version: ${{ steps.pin.outputs.bun-version }}
           no-cache: true
-      - name: Restore the pinned Exact release
-        uses: disposabl-dev/disposabl-exact/.github/actions/exact-setup@82a8a19b779bc6f60012f3994981520707c5523f
+      - name: Check out the pinned Exact version
+        uses: actions/checkout@v7.0.1
         with:
-          platform: ios
-          exact-ref: ${{ steps.pin.outputs.exact-ref }}
-          bun-version: ${{ steps.pin.outputs.bun-version }}
-          bundle-version: ${{ steps.pin.outputs.bundle-version }}
-          bun-ready: 'true'
+          repository: expo/exact
+          ref: ${{ steps.pin.outputs.exact-ref }}
+          path: .exact-sdk
+          persist-credentials: false
+      - name: Install the locked Exact and app dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd .exact-sdk && bun install --frozen-lockfile)
+          (cd apps/apps && bun install --frozen-lockfile)
+          echo "EXACT=$GITHUB_WORKSPACE/.exact-sdk" >> "$GITHUB_ENV"
       - name: Build and verify the unsigned iPhone IPA
-        working-directory: ${{ env.NATIVE_APP_DIR }}
+        working-directory: apps/apps
         shell: bash
         run: |
           set -euo pipefail
