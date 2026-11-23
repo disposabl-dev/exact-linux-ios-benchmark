@@ -12,7 +12,7 @@ on:
         default: travel-desk
       cache_profile:
         type: choice
-        options: [shared, missing]
+        options: [shared, missing, compiler-only]
         default: shared
 permissions:
   contents: read
@@ -30,11 +30,14 @@ jobs:
         build: ${{ fromJSON(inputs.suite == 'five-apps' &&
           (inputs.cache_profile == 'missing'
           && '["paperstack-missing-cache","trail-missing-cache","field-missing-cache","aperture-missing-cache","voice-missing-cache"]'
-          || '["paperstack-shared","paperstack-control-shared","trail-shared","field-shared","aperture-shared","voice-shared"]')
+          || (inputs.cache_profile == 'compiler-only'
+          && '["paperstack-portable-shared","voice-portable-shared"]'
+          || '["paperstack-shared","paperstack-control-shared","trail-shared","field-shared","aperture-shared","voice-shared"]'))
           || '["github-shared","github-no-compiler-cache"]') }}
     env:
       SDK_RELAY: ${{ inputs.sdk_relay }}
       BENCHMARK_APP: ${{ matrix.build }}
+      EXACT_REBUILD_SWIFT_GRAPH: ${{ contains(matrix.build, '-portable-') }}
       EXACT_IOS_FAST_SDK_INSTALL: ${{ inputs.suite == 'five-apps' && matrix.build != 'paperstack-control-shared' }}
       CONVEX_ORIGIN: ws://127.0.0.1:3210
       CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
@@ -60,6 +63,7 @@ jobs:
           fixture=${BENCHMARK_APP%-missing-cache}
           fixture=${fixture%-shared}
           fixture=${fixture%-control}
+          fixture=${fixture%-portable}
           jq -er --arg fixture "$fixture" '.[$fixture] | to_entries[] | "\(.key)=\(.value)"' scripts/fixtures.json >> "$GITHUB_OUTPUT"
           echo "EXACT_APP_CHECKOUT=$GITHUB_WORKSPACE/fixture" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7.0.1

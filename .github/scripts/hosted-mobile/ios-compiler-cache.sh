@@ -82,10 +82,18 @@ case "$mode" in
     ' EXIT
     unzip -p "$archive" compiler-key > "$bundle/compiler-key"
     # The pinned ZIP digest authenticates its header and the entire encrypted entry.
+    excludes=()
+    if [[ "${EXACT_REBUILD_SWIFT_GRAPH:-false}" == true ]]; then
+      excludes=(--exclude=apple-swift --exclude=apple-modules)
+    fi
     unzip -p "$archive" compiler.tar.zst.enc \
       | openssl enc -d -aes-256-ctr -pbkdf2 -iter 100000 \
           -pass "file:$RUNNER_TEMP/ios-cache-passphrase" \
-      | zstd -dc | tar --no-same-owner -xf - -C "$staged"
+      | zstd -dc | tar --no-same-owner "${excludes[@]}" -xf - -C "$staged"
+    if [[ "${EXACT_REBUILD_SWIFT_GRAPH:-false}" == true ]]; then
+      [[ -d "$staged/swift-cas" && ! -e "$staged/apple-swift" && ! -e "$staged/apple-modules" ]]
+      echo 'Restored compiler outputs with a fresh SwiftPM build graph'
+    fi
     if [[ "$mode" == stage ]]; then
       keep_staged=true
       exit
