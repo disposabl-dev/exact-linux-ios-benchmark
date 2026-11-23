@@ -17,16 +17,22 @@ case "${1:?expected a benchmark phase}" in
   setup)
     scripts=.github/scripts/hosted-mobile
     pids=()
-    bash "$scripts/install-sdk.sh" fetch & pids+=("$!")
+    bash "$scripts/install-sdk.sh" fetch & sdk_pid=$!
     if [[ -n "$EXACT_IOS_CACHE_DIGEST" && "$BENCHMARK_APP" == *-shared ]]; then
       (
         bash "$scripts/ios-compiler-cache.sh" stage "$RUNNER_TEMP/prebuilt-ios" ||
           echo 'Shared compiler bundle unavailable. The build will compile dependencies.'
       ) & pids+=("$!")
     fi
-    bash "$scripts/toolchain.sh" & pids+=("$!")
+    bash "$scripts/toolchain.sh" & tools_pid=$!
     bash "$scripts/prepare-apple-exact.sh" ios bootstrap & pids+=("$!")
     status=0
+    wait "$sdk_pid" || status=$?
+    wait "$tools_pid" || status=$?
+    if [[ $status == 0 && "${EXACT_IOS_FAST_SDK_INSTALL:-false}" == true ]]; then
+      PATH="$EXACT_IOS_TOOL_DIR:$PATH" APPIMAGE_EXTRACT_AND_RUN=1 \
+        bash "$scripts/install-sdk.sh" install || status=$?
+    fi
     for pid in "${pids[@]}"; do wait "$pid" || status=$?; done
     exit "$status"
     ;;

@@ -59,8 +59,22 @@ if [[ "$phase" == fetch ]]; then
   exit
 fi
 xtool --version
-xtool sdk install "$private/darwin.xtoolsdk"
-sdk_status=$(xtool sdk status)
+destination="$HOME/.config/xtool/darwin.xtoolsdk"
+if [[ "${EXACT_IOS_FAST_SDK_INSTALL:-false}" == true && ! -e "$destination" ]]; then
+  install_start=$(date +%s)
+  mkdir -p "$(dirname "$destination")"
+  mv "$private/darwin.xtoolsdk" "$destination"
+  sdk_status=$(xtool sdk status)
+  if [[ "$sdk_status" != *"Darwin SDK is installed"* ]]; then
+    mv "$destination" "$private/darwin.xtoolsdk"
+    xtool sdk install "$private/darwin.xtoolsdk"
+    sdk_status=$(xtool sdk status)
+  fi
+  printf 'SDK install finished in %ss\n' "$(( $(date +%s) - install_start ))"
+else
+  xtool sdk install "$private/darwin.xtoolsdk"
+  sdk_status=$(xtool sdk status)
+fi
 printf '%s\n' "$sdk_status"
 sdk=$(realpath "$(sed -n 's/^  Path: //p' <<< "$sdk_status")")
 [[ -d "$sdk" ]]

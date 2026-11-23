@@ -6,11 +6,15 @@ on:
         description: HTTPS endpoint for one-time encrypted benchmark inputs
         required: true
         type: string
+      suite:
+        type: choice
+        options: [travel-desk, five-apps]
+        default: travel-desk
 permissions:
   contents: read
 jobs:
   ios:
-    name: iOS (github-${{ matrix.cache }})
+    name: iOS (${{ matrix.build }})
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -19,10 +23,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cache: [shared, no-compiler-cache]
+        build: ${{ fromJSON(inputs.suite == 'five-apps' && '["paperstack-shared","paperstack-control-shared","trail-shared","field-shared","aperture-shared","voice-shared"]' || '["github-shared","github-no-compiler-cache"]') }}
     env:
       SDK_RELAY: ${{ inputs.sdk_relay }}
-      BENCHMARK_APP: github-${{ matrix.cache }}
+      BENCHMARK_APP: ${{ matrix.build }}
+      EXACT_IOS_FAST_SDK_INSTALL: ${{ inputs.suite == 'five-apps' && matrix.build != 'paperstack-control-shared' }}
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      VERIFY_CONTACTS_CALENDAR: ${{ inputs.suite != 'five-apps' }}
       EXACT_IOS_TOOL_DIR: /home/runner/_work/_temp/hosted-mobile-tools
       CARGO_HOME: /home/runner/.cargo
       BENCHMARK_TARGET: ios
@@ -36,6 +44,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          persist-credentials: false
+      - id: fixture
+        name: Select the public app revision
+        if: inputs.suite == 'five-apps'
+        run: |
+          fixture=${BENCHMARK_APP%-shared}
+          fixture=${fixture%-control}
+          jq -er --arg fixture "$fixture" '.[$fixture] | to_entries[] | "\(.key)=\(.value)"' scripts/fixtures.json >> "$GITHUB_OUTPUT"
+          echo "EXACT_APP_CHECKOUT=$GITHUB_WORKSPACE/fixture" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7.0.1
+        if: inputs.suite == 'five-apps'
+        with:
+          repository: ${{ steps.fixture.outputs.repository }}
+          ref: ${{ steps.fixture.outputs.ref }}
+          path: fixture
           persist-credentials: false
       - name: Check the input endpoint
         run: |
@@ -83,11 +106,12 @@ jobs:
           EXACT_IOS_CACHE_DIGEST: ${{ steps.pin.outputs.ios-cas-cache-digest }}
         run: bash scripts/benchmark.sh setup
       - name: Install xTool SDK
+        if: env.EXACT_IOS_FAST_SDK_INSTALL != 'true'
         run: bash .github/scripts/hosted-mobile/install-sdk.sh install
       - name: Validate the toolchain and prepare the pinned compiler inputs
         run: bash scripts/benchmark.sh validate
       - name: Activate the shared Linux iOS compiler bundle
-        if: matrix.cache != 'no-compiler-cache'
+        if: matrix.build != 'github-no-compiler-cache'
         run: bash scripts/benchmark.sh activate
       - name: Build and verify device IPA
         working-directory: ${{ env.NATIVE_APP_DIR }}

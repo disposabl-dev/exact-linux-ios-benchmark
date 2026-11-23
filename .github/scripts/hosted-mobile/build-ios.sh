@@ -50,7 +50,7 @@ apps=("$unpacked"/Payload/*.app)
 [[ ${#apps[@]} == 1 && -f "${apps[0]}/Info.plist" ]]
 [[ -z "$(find "$unpacked" -name embedded.mobileprovision -print -quit)" ]]
 id=$(jq -er '.app.id' app.json)
-exe=$(python3 - "${apps[0]}/Info.plist" "$id" <<'PY'
+exe=$(python3 - "${apps[0]}/Info.plist" "$id" "${VERIFY_CONTACTS_CALENDAR:-true}" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], "rb") as file:
     info = plistlib.load(file)
@@ -61,7 +61,7 @@ keys = (
     "NSCalendarsFullAccessUsageDescription",
     "NSCalendarsWriteOnlyAccessUsageDescription",
 )
-if any(not info.get(key) for key in keys):
+if sys.argv[3] == "true" and any(not info.get(key) for key in keys):
     raise SystemExit("IPA is missing the Contacts or Calendar purpose strings")
 print(info["CFBundleExecutable"])
 PY
@@ -73,6 +73,8 @@ grep -Ein '^[[:space:]]*platform[[:space:]]+(ios|2)[[:space:]]*$' "$unpacked/loa
 rcodesign print-signature-info --config-file /dev/null "${apps[0]}/$exe" > "$unpacked/signature"
 grep -q 'CodeSignatureFlags(.*ADHOC' "$unpacked/signature"
 grep -Eq '^[[:space:]]*cms: null[[:space:]]*$' "$unpacked/signature"
-echo "Verified Contacts, Calendar full-access, and Calendar write-only descriptions"
+if [[ "${VERIFY_CONTACTS_CALENDAR:-true}" == true ]]; then
+  echo "Verified Contacts, Calendar full-access, and Calendar write-only descriptions"
+fi
 sha256sum "$ipa"
 printf 'Verified unsigned arm64 iPhone IPA in %ss\n' "$(( $(date +%s) - start ))"

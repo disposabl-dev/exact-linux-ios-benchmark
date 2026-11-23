@@ -1,0 +1,22 @@
+{
+  "paperstack": {
+    "repository": "disposabl-dev/exact-first-paperstack-hosts",
+    "ref": "8c0d8501ff1d545e77307a4a30331e18d2be841a"
+  },
+  "trail": {
+    "repository": "disposabl-dev/exact-first-trail-hosts",
+    "ref": "89e33722664312c29c653cda4a41b915510c657f"
+  },
+  "field": {
+    "repository": "disposabl-dev/exact-first-field-hosts",
+    "ref": "d4f38769b2916c4e728f0487d965648d022ee288"
+  },
+  "aperture": {
+    "repository": "disposabl-dev/exact-first-aperture-hosts",
+    "ref": "76d595c491b5ff4302809aeb03af0e70575fe0cc"
+  },
+  "voice": {
+    "repository": "disposabl-dev/exact-first-voice-hosts-clean",
+    "ref": "13c2b03c1a602242f01b0ec4fc966511ab37c792"
+  }
+}
