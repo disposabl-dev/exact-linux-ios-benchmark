@@ -1,0 +1,50 @@
+name: Build unsigned iOS with a public SDK input
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    name: iOS (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-26.04, blacksmith-8vcpu-ubuntu-2604]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      BENCHMARK_TARGET: ios
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      EXACT_FAST_UBUNTU_MIRROR: 1
+      EXACT_FEEDBACK: '0'
+      EXACT_IOS_FAST_PREVIEW: 'true'
+      EXACT_IOS_PARALLEL_SETUP: 'true'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - name: Restore versioned Exact tools
+        id: restore
+        run: bash scripts/benchmark.sh restore
+      - name: Install build tools and prepare Rust
+        run: |
+          bash .github/scripts/hosted-mobile/toolchain.sh &
+          tools=$!
+          bash .github/scripts/hosted-mobile/prepare-apple-exact.sh ios bootstrap &
+          rust=$!
+          wait "$tools"
+          wait "$rust"
+      - name: Install the checksum-pinned iPhone SDK anonymously
+        run: bash .github/scripts/hosted-mobile/install-public-sdk.sh
+      - name: Check the Linux iPhone toolchain
+        run: bash scripts/benchmark.sh validate
+      - name: Build and verify the unsigned iPhone IPA
+        working-directory: ${{ env.NATIVE_APP_DIR }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
