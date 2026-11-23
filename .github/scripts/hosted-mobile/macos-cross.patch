@@ -66,3 +66,31 @@
      // A local .app gives Launch Services an owner for development links, and is what `--run` launches (a bare executable has no Info.plist).
      // A profile's entitlements hold only in a bundle that embeds it.
      // What runs beside an executable in its bundle's MacOS directory: the app's and the sample host's.
+--- a/host/apple/assets.mjs
++++ b/host/apple/assets.mjs
+@@ -77,7 +77,24 @@
+       sized(light.path, base, base, resolve(set, `icon_${base}x${base}.png`));
+       sized(light.path, base * 2, base * 2, resolve(set, `icon_${base}x${base}@2x.png`));
+     }
+-    run('iconutil', ['-c', 'icns', set, '-o', resolve(dir, 'AppIcon.icns')], { stdio: 'ignore' });
++    const out = resolve(dir, 'AppIcon.icns');
++    if (process.platform === 'linux') {
++      const entries = [ ['icp4', 16], ['icp5', 32], ['ic07', 128], ['ic08', 256], ['ic09', 512],
++        ['ic11', 16, '@2x'], ['ic12', 32, '@2x'], ['ic13', 128, '@2x'], ['ic14', 256, '@2x'], ['ic10', 512, '@2x'] ];
++      const header = (type, length) => {
++        const bytes = Buffer.alloc(8);
++        bytes.write(type, 'ascii');
++        bytes.writeUInt32BE(length, 4);
++        return bytes;
++      };
++      const icons = entries.map(([type, size, scale = '']) => {
++        const png = readFileSync(resolve(set, `icon_${size}x${size}${scale}.png`));
++        return Buffer.concat([header(type, png.length + 8), png]);
++      });
++      writeFileSync(out, Buffer.concat([header('icns', 8 + icons.reduce((size, icon) => size + icon.length, 0)), ...icons]));
++    } else {
++      run('iconutil', ['-c', 'icns', set, '-o', out], { stdio: 'ignore' });
++    }
+   } finally { rmSync(work, { recursive: true, force: true }); }
+   return { CFBundleIconFile: 'AppIcon' };
+ }
