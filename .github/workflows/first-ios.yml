@@ -10,6 +10,10 @@ on:
         type: choice
         options: [travel-desk, five-apps]
         default: travel-desk
+      cache_profile:
+        type: choice
+        options: [shared, missing]
+        default: shared
 permissions:
   contents: read
 jobs:
@@ -23,7 +27,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: ${{ fromJSON(inputs.suite == 'five-apps' && '["paperstack-shared","paperstack-control-shared","trail-shared","field-shared","aperture-shared","voice-shared"]' || '["github-shared","github-no-compiler-cache"]') }}
+        build: ${{ fromJSON(inputs.suite == 'five-apps' &&
+          (inputs.cache_profile == 'missing'
+          && '["paperstack-missing-cache","trail-missing-cache","field-missing-cache","aperture-missing-cache","voice-missing-cache"]'
+          || '["paperstack-shared","paperstack-control-shared","trail-shared","field-shared","aperture-shared","voice-shared"]')
+          || '["github-shared","github-no-compiler-cache"]') }}
     env:
       SDK_RELAY: ${{ inputs.sdk_relay }}
       BENCHMARK_APP: ${{ matrix.build }}
@@ -49,7 +57,8 @@ jobs:
         name: Select the public app revision
         if: inputs.suite == 'five-apps'
         run: |
-          fixture=${BENCHMARK_APP%-shared}
+          fixture=${BENCHMARK_APP%-missing-cache}
+          fixture=${fixture%-shared}
           fixture=${fixture%-control}
           jq -er --arg fixture "$fixture" '.[$fixture] | to_entries[] | "\(.key)=\(.value)"' scripts/fixtures.json >> "$GITHUB_OUTPUT"
           echo "EXACT_APP_CHECKOUT=$GITHUB_WORKSPACE/fixture" >> "$GITHUB_ENV"
@@ -103,7 +112,7 @@ jobs:
         run: bash scripts/benchmark.sh restore
       - name: Set up Swift, Rust and xTool
         env:
-          EXACT_IOS_CACHE_DIGEST: ${{ steps.pin.outputs.ios-cas-cache-digest }}
+          EXACT_IOS_CACHE_DIGEST: ${{ !endsWith(matrix.build, '-missing-cache') && steps.pin.outputs.ios-cas-cache-digest || '' }}
         run: bash scripts/benchmark.sh setup
       - name: Install xTool SDK
         if: env.EXACT_IOS_FAST_SDK_INSTALL != 'true'
