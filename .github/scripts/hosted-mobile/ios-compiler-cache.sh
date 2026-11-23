@@ -52,21 +52,25 @@ case "$mode" in
     : "${EXACT_IOS_CACHE_DIGEST:?Use a pinned compiler cache archive digest}"
     private=$(mktemp -d "$RUNNER_TEMP/compiler-transfer.XXXXXX")
     trap 'rm -rf "$private"' EXIT
-    archive="$private/compiler.zip"
-    for attempt in {1..30}; do
-      if [[ -s "$RUNNER_TEMP/ios-cache-passphrase" ]] &&
-         curl -fSs --max-time 8 "$SDK_RELAY/keys/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.compiler" -o "$private/url.enc" 2>/dev/null; then
-        url=$(openssl enc -d -aes-256-ctr -pbkdf2 -iter 100000 \
-          -pass "file:$RUNNER_TEMP/ios-cache-passphrase" -in "$private/url.enc")
-        case "$url" in
-          https://*.blob.core.windows.net/*|https://*.actions.githubusercontent.com/*|https://release-assets.githubusercontent.com/*) ;;
-          *) echo 'Unexpected compiler cache download host' >&2; exit 1 ;;
-        esac
-        if curl -fSsL --max-time 240 "$url" -o "$archive"; then break; fi
-        rm -f "$archive"
-      fi
-      sleep 2
-    done
+    if [[ -s "${EXACT_COMPILER_ARCHIVE:-}" ]]; then
+      archive="$EXACT_COMPILER_ARCHIVE"
+    else
+      archive="$private/compiler.zip"
+      for attempt in {1..30}; do
+        if [[ -s "$RUNNER_TEMP/ios-cache-passphrase" ]] &&
+           curl -fSs --max-time 8 "$SDK_RELAY/keys/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.compiler" -o "$private/url.enc" 2>/dev/null; then
+          url=$(openssl enc -d -aes-256-ctr -pbkdf2 -iter 100000 \
+            -pass "file:$RUNNER_TEMP/ios-cache-passphrase" -in "$private/url.enc")
+          case "$url" in
+            https://*.blob.core.windows.net/*|https://*.actions.githubusercontent.com/*|https://release-assets.githubusercontent.com/*) ;;
+            *) echo 'Unexpected compiler cache download host' >&2; exit 1 ;;
+          esac
+          if curl -fSsL --max-time 240 "$url" -o "$archive"; then break; fi
+          rm -f "$archive"
+        fi
+        sleep 2
+      done
+    fi
     [[ -s "$archive" ]]
     printf '%s  %s\n' "$EXACT_IOS_CACHE_DIGEST" "$archive" | sha256sum -c -
     [[ ! -e "$target" && ! -e "$staged" ]]

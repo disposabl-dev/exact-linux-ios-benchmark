@@ -27,8 +27,11 @@ if [[ "$phase" != install ]]; then
     install -m 600 "$private/passphrase" "$RUNNER_TEMP/ios-cache-passphrase"
   fi
   archive="$private/sdk.enc"
+  if [[ -s "${EXACT_SDK_CIPHERTEXT:-}" ]]; then
+    ln -s "$(realpath "$EXACT_SDK_CIPHERTEXT")" "$archive"
+  fi
   mirror=
-  if curl -fsS --max-time 10 "$SDK_RELAY/keys/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.mirror" -o "$private/mirror.enc" 2>/dev/null; then
+  if [[ ! -s "$archive" ]] && curl -fsS --max-time 10 "$SDK_RELAY/keys/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.mirror" -o "$private/mirror.enc" 2>/dev/null; then
     mirror=$(openssl enc -d -aes-256-ctr -pbkdf2 -iter 100000 -pass "file:$private/passphrase" -in "$private/mirror.enc")
   fi
   case "$mirror" in

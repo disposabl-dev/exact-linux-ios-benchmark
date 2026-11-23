@@ -59,6 +59,7 @@ bash .github/scripts/hosted-mobile/install-sdk.sh install
 apply_job_environment
 bash scripts/benchmark.sh validate
 apply_job_environment
+export PATH="$EXACT_APPLE_LLVM_BIN:$PATH"
 bash scripts/benchmark.sh activate
 apply_job_environment
 cd "$NATIVE_APP_DIR"
