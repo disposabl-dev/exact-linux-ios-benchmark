@@ -40,6 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           (cd .exact-sdk && bun install --frozen-lockfile)
+          mkdir -p apps/apps/.exact
+          ln -s "$GITHUB_WORKSPACE/.exact-sdk" apps/apps/.exact/checkout
           (cd apps/apps && bun install --frozen-lockfile)
           echo "EXACT=$GITHUB_WORKSPACE/.exact-sdk" >> "$GITHUB_ENV"
       - name: Build and verify the unsigned iPhone IPA
