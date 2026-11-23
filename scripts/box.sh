@@ -11,23 +11,28 @@ export RUNNER_OS=Linux RUNNER_ARCH=X64
 export GITHUB_ENV="$RUNNER_TEMP/job.env" GITHUB_PATH="$RUNNER_TEMP/job.path" GITHUB_OUTPUT="$RUNNER_TEMP/job.out"
 export GITHUB_RUN_ATTEMPT=1 BENCHMARK_APP=box-shared BENCHMARK_TARGET=ios
 export EXACT_FEEDBACK=0 EXACT_FAST_UBUNTU_MIRROR=1
-export EXACT_IOS_CACHE_PROBE=true EXACT_IOS_CACHE_MODE=restore EXACT_IOS_FAST_PREVIEW=true
-export EXACT_IOS_PARALLEL_SETUP=true EXACT_IOS_SWIFT_CACHE=true
+export EXACT_IOS_FAST_PREVIEW=true EXACT_IOS_PARALLEL_SETUP=true
 export EXACT_IOS_COMPILER_DIR="$HOME/.cache/exact-native/ios-linux"
 export PATH="$HOME/.cargo/bin:$PATH"
-: "${SDK_RELAY:?Expected an authorized HTTPS inputs relay}" "${GITHUB_RUN_ID:?Expected a unique benchmark ID}"
-[[ "$SDK_RELAY" == https://* && ! -e "$EXACT_IOS_COMPILER_DIR" ]]
-mkdir -p "$HOME/.cargo/bin" "$HOME/.config/xtool" /root/.config
-ln -s "$HOME/.config/xtool" /root/.config/xtool
+[[ ! -e "$EXACT_IOS_COMPILER_DIR" ]]
+mkdir -p "$HOME/.cargo/bin"
 git config --global --add safe.directory "$GITHUB_WORKSPACE"
 touch "$GITHUB_ENV" "$GITHUB_PATH" "$GITHUB_OUTPUT"
-trap 'rm -f "$RUNNER_TEMP/sdk-recipient.key" "$RUNNER_TEMP/ios-cache-passphrase"' EXIT
 
-umask 077
-openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/sdk-recipient.key"
-openssl pkey -in "$RUNNER_TEMP/sdk-recipient.key" -pubout -out "$RUNNER_TEMP/sdk-recipient.pub"
-chmod 644 "$RUNNER_TEMP/sdk-recipient.pub"
-umask 022
+if [[ -n "${SDK_RELAY:-}" ]]; then
+  : "${GITHUB_RUN_ID:?Expected a unique benchmark ID}"
+  [[ "$SDK_RELAY" == https://* ]]
+  export EXACT_IOS_CACHE_PROBE=true EXACT_IOS_CACHE_MODE=restore EXACT_IOS_SWIFT_CACHE=true
+  mkdir -p "$HOME/.config/xtool" /root/.config
+  ln -s "$HOME/.config/xtool" /root/.config/xtool
+  trap 'rm -f "$RUNNER_TEMP/sdk-recipient.key" "$RUNNER_TEMP/ios-cache-passphrase"' EXIT
+  (
+    umask 077
+    openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/sdk-recipient.key"
+    openssl pkey -in "$RUNNER_TEMP/sdk-recipient.key" -pubout -out "$RUNNER_TEMP/sdk-recipient.pub"
+    chmod 644 "$RUNNER_TEMP/sdk-recipient.pub"
+  )
+fi
 
 sed -i 's@^URIs: .*@URIs: https://mirrors.edge.kernel.org/ubuntu@' /etc/apt/sources.list.d/ubuntu.sources
 apt=(apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=25 -o Acquire::Languages=none)
@@ -53,15 +58,27 @@ apply_job_environment() {
 
 bash scripts/benchmark.sh restore
 apply_job_environment
-bash scripts/benchmark.sh setup
-apply_job_environment
-bash .github/scripts/hosted-mobile/install-sdk.sh install
+if [[ -n "${SDK_RELAY:-}" ]]; then
+  bash scripts/benchmark.sh setup
+  apply_job_environment
+  bash .github/scripts/hosted-mobile/install-sdk.sh install
+else
+  bash .github/scripts/hosted-mobile/toolchain.sh &
+  tools=$!
+  EXACT="$HOME/work/_temp/exact-sdk" bash .github/scripts/hosted-mobile/prepare-apple-exact.sh ios bootstrap &
+  rust=$!
+  wait "$tools"
+  wait "$rust"
+  apply_job_environment
+  bash .github/scripts/hosted-mobile/install-public-sdk.sh
+fi
 apply_job_environment
 bash scripts/benchmark.sh validate
 apply_job_environment
-export PATH="$EXACT_APPLE_LLVM_BIN:$PATH"
-bash scripts/benchmark.sh activate
-apply_job_environment
+if [[ -n "${SDK_RELAY:-}" ]]; then
+  bash scripts/benchmark.sh activate
+  apply_job_environment
+fi
 cd "$NATIVE_APP_DIR"
 bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
 printf 'Box benchmark from container start to verified IPA: %ss\n' "$(( $(date +%s) - wall_start ))"
