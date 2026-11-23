@@ -84,7 +84,7 @@ jobs:
           print(contents / "MacOS" / plist["CFBundleExecutable"])
           PY_CHECK
           )
-          llvm-lipo -verify_arch arm64 "$binary"
+          llvm-lipo "$binary" -verify_arch arm64
           llvm-objdump --macho --private-headers "$binary" > "$RUNNER_TEMP/mac-build-version"
           grep -Eiq '^[[:space:]]*platform[[:space:]]+(macos|1)[[:space:]]*$' "$RUNNER_TEMP/mac-build-version"
           rcodesign print-signature-info --config-file /dev/null "$binary" > "$RUNNER_TEMP/mac-signature"
