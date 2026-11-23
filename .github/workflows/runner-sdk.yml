@@ -1,0 +1,75 @@
+name: Build with the runner-provided iOS SDK
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      EXACT_FEEDBACK: '0'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the installed Xcode and iPhone SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = 27.2
+          xcodebuild -version | tee "$RUNNER_TEMP/xcode-version"
+          grep -Fxq 'Build version 27B52' "$RUNNER_TEMP/xcode-version"
+      - id: pin
+        shell: bash
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - name: Restore the pinned Exact release
+        uses: disposabl-dev/disposabl-exact/.github/actions/exact-setup@82a8a19b779bc6f60012f3994981520707c5523f
+        with:
+          platform: ios
+          exact-ref: ${{ steps.pin.outputs.exact-ref }}
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          bundle-version: ${{ steps.pin.outputs.bundle-version }}
+          bun-ready: 'true'
+      - name: Build and verify the unsigned iPhone IPA
+        working-directory: ${{ env.NATIVE_APP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export EXACT_UPDATE_GENESIS=1 EXACT_UPDATE_TRUST=production
+          ipa="$RUNNER_TEMP/travel-desk.ipa"
+          bun exact.mjs ios --device --release --unsigned --no-install --archive "$ipa"
+          unzip -tq "$ipa"
+          archive=$(mktemp -d "$RUNNER_TEMP/ipa.XXXXXX")
+          trap 'rm -rf "$archive"' EXIT
+          unzip -q "$ipa" -d "$archive"
+          apps=("$archive"/Payload/*.app)
+          [[ ${#apps[@]} == 1 && -f "${apps[0]}/Info.plist" ]]
+          [[ -z "$(find "$archive" -name embedded.mobileprovision -print -quit)" ]]
+          executable=$(python3 - "${apps[0]}/Info.plist" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "rb") as file:
+              info = plistlib.load(file)
+          assert info["CFBundleIdentifier"] == "dev.disposabl.fresh.traveldesk"
+          assert info["NSContactsUsageDescription"]
+          assert info["NSCalendarsFullAccessUsageDescription"]
+          assert info["NSCalendarsWriteOnlyAccessUsageDescription"]
+          print(info["CFBundleExecutable"])
+          PY
+          )
+          [[ "$executable" != */* && "$executable" != . && "$executable" != .. ]]
+          binary="${apps[0]}/$executable"
+          xcrun lipo -verify_arch arm64 "$binary"
+          xcrun vtool -show-build "$binary" > "$archive/load-commands"
+          grep -Eiq '^[[:space:]]*platform[[:space:]]+(ios|2)[[:space:]]*$' "$archive/load-commands"
+          codesign -d --verbose=4 "$binary" > "$archive/signature" 2>&1
+          grep -Fxq 'Signature=adhoc' "$archive/signature"
+          shasum -a 256 "$ipa"
+          echo 'Verified unsigned arm64 iPhone IPA using the runner-provided Xcode SDK'
