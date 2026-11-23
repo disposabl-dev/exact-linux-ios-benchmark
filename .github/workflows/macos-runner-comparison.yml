@@ -1,0 +1,118 @@
+name: Compare Mac and Ubuntu desktop build times
+on:
+  push:
+    branches: [ci/macos-runner-comparison]
+    paths:
+      - .github/workflows/macos-runner-comparison.yml
+      - scripts/time-desktop.sh
+permissions:
+  contents: read
+jobs:
+  ubuntu:
+    runs-on: blacksmith-8vcpu-ubuntu-2604
+    timeout-minutes: 22
+    defaults:
+      run:
+        shell: bash
+    env:
+      BENCHMARK_TARGET: macos
+      EXACT_FAST_UBUNTU_MIRROR: 1
+      EXACT_FEEDBACK: '0'
+      EXACT_IDENTITY: '-'
+      CARGO_PROFILE_RELEASE_LTO: 'off'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: expo/exact
+          ref: ${{ steps.pin.outputs.exact-ref }}
+          path: .exact-sdk
+          persist-credentials: false
+      - name: Prepare Exact and the cross compiler
+        run: |
+          set -euo pipefail
+          export EXACT="$GITHUB_WORKSPACE/.exact-sdk"
+          git -C "$EXACT" apply "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/macos-cross.patch"
+          git -C "$EXACT" apply "$GITHUB_WORKSPACE/.github/actions/exact-setup/scripts/ios-contacts-compat.patch"
+          (cd "$EXACT" && bun install --frozen-lockfile)
+          mkdir -p apps/apps/.exact
+          ln -s "$EXACT" apps/apps/.exact/checkout
+          (cd apps/apps && bun install --frozen-lockfile)
+          bash .github/scripts/hosted-mobile/toolchain.sh & tools=$!
+          bash .github/scripts/hosted-mobile/prepare-apple-exact.sh macos bootstrap & rust=$!
+          status=0
+          wait "$tools" || status=$?
+          wait "$rust" || status=$?
+          test "$status" = 0
+          echo "EXACT=$EXACT" >> "$GITHUB_ENV"
+      - name: Install the pinned macOS SDK
+        run: bash .github/scripts/hosted-mobile/install-public-sdk.sh macos
+      - name: Measure cold and edited desktop builds
+        working-directory: apps/apps
+        run: |
+          set -euo pipefail
+          tools=$(mktemp -d "$RUNNER_TEMP/mac-commands.XXXXXX")
+          cat > "$tools/xcrun" <<'XCRUN'
+          #!/usr/bin/env bash
+          exec bun "$EXACT/host/apple/toolchain.mjs" "$@"
+          XCRUN
+          chmod +x "$tools/xcrun"
+          export PATH="$tools:$PATH"
+          xcrun --sdk macosx --show-sdk-path
+          bash "$GITHUB_WORKSPACE/scripts/time-desktop.sh"
+  mac:
+    runs-on: blacksmith-6vcpu-macos-27
+    timeout-minutes: 22
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXACT_FEEDBACK: '0'
+      EXACT_IDENTITY: '-'
+      CARGO_PROFILE_RELEASE_LTO: 'off'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: expo/exact
+          ref: ${{ steps.pin.outputs.exact-ref }}
+          path: .exact-sdk
+          persist-credentials: false
+      - name: Prepare Exact and the macOS SDK
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          test "$(uname -m)" = arm64
+          export EXACT="$GITHUB_WORKSPACE/.exact-sdk"
+          (cd "$EXACT" && bun install --frozen-lockfile)
+          mkdir -p apps/apps/.exact
+          ln -s "$EXACT" apps/apps/.exact/checkout
+          (cd apps/apps && bun install --frozen-lockfile)
+          bash .github/scripts/hosted-mobile/prepare-apple-exact.sh macos bootstrap
+          echo "EXACT=$EXACT" >> "$GITHUB_ENV"
+      - name: Measure cold and edited desktop builds
+        working-directory: apps/apps
+        run: bash "$GITHUB_WORKSPACE/scripts/time-desktop.sh"
