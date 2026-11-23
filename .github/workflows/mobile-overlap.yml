@@ -1,0 +1,76 @@
+name: Verify Android and iOS in parallel
+on:
+  push:
+    branches: [ci/mobile-desktop-overlap]
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: blacksmith-8vcpu-ubuntu-2604
+    timeout-minutes: 20
+    env:
+      BENCHMARK_TARGET: ios
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      EXACT_FAST_UBUNTU_MIRROR: 1
+      EXACT_FEEDBACK: '0'
+      EXACT_IOS_FAST_PREVIEW: 'true'
+      EXACT_IOS_PARALLEL_SETUP: 'true'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - name: Restore versioned Exact tools
+        id: restore
+        run: bash scripts/benchmark.sh restore
+      - name: Install build tools and prepare Rust
+        run: bash scripts/benchmark.sh public-tools
+      - name: Install the checksum-pinned iPhone SDK anonymously
+        run: bash .github/scripts/hosted-mobile/install-public-sdk.sh
+      - name: Check the Linux iPhone toolchain
+        run: bash scripts/benchmark.sh validate
+      - name: Build and verify the unsigned iPhone IPA
+        working-directory: ${{ env.NATIVE_APP_DIR }}
+        run: EXACT="$HOME/work/_temp/exact-sdk" bash "$GITHUB_WORKSPACE/.github/scripts/hosted-mobile/build-ios.sh"
+  android:
+    runs-on: blacksmith-8vcpu-ubuntu-2604
+    timeout-minutes: 20
+    env:
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      EXACT_FEEDBACK: '0'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - name: Restore pinned Exact and Android tools
+        uses: disposabl-dev/disposabl-exact/.github/actions/exact-setup@82a8a19b779bc6f60012f3994981520707c5523f
+        with:
+          platform: android
+          exact-ref: ${{ steps.pin.outputs.exact-ref }}
+          bundle-version: ${{ steps.pin.outputs.bundle-version }}
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+      - name: Build and verify the Android APK
+        working-directory: ${{ env.NATIVE_APP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export EXACT_UPDATE_GENESIS=1 EXACT_UPDATE_TRUST=production EXACT_ANDROID_APK_ONLY=1
+          export EXACT_KEYSTORE="$RUNNER_TEMP/benchmark.p12" EXACT_KEY_ALIAS=benchmark
+          export EXACT_KEYSTORE_PASSWORD=benchmark EXACT_KEY_PASSWORD=benchmark
+          keytool -genkeypair -storetype PKCS12 -keystore "$EXACT_KEYSTORE" -storepass benchmark -keypass benchmark \
+            -alias benchmark -keyalg RSA -keysize 2048 -validity 7 -dname 'CN=Exact benchmark'
+          start=$SECONDS
+          bun exact.mjs android --release --no-install --json > "$RUNNER_TEMP/android-result.json"
+          apk=$(jq -er '.path' "$RUNNER_TEMP/android-result.json")
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION/apksigner" verify "$apk"
+          printf 'Verified Android APK in %ss\n' "$(( SECONDS - start ))"
