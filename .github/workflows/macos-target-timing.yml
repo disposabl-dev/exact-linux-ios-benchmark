@@ -1,0 +1,67 @@
+name: Time a cold Exact macOS desktop build
+on:
+  push:
+    branches: [ci/macos-target-timing]
+    paths: [.github/workflows/macos-target-timing.yml]
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: blacksmith-6vcpu-macos-27
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXACT_FEEDBACK: '0'
+      EXACT_IDENTITY: '-'
+      CONVEX_ORIGIN: ws://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: pin
+        run: cat .github/actions/exact-setup/pin.env >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: ${{ steps.pin.outputs.bun-version }}
+          no-cache: true
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: expo/exact
+          ref: ${{ steps.pin.outputs.exact-ref }}
+          path: .exact-sdk
+          persist-credentials: false
+      - name: Prepare Exact and the macOS SDK
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          test "$(uname -m)" = arm64
+          export EXACT="$GITHUB_WORKSPACE/.exact-sdk"
+          (cd "$EXACT" && bun install --frozen-lockfile)
+          mkdir -p apps/apps/.exact
+          ln -s "$EXACT" apps/apps/.exact/checkout
+          (cd apps/apps && bun install --frozen-lockfile)
+          bash .github/scripts/hosted-mobile/prepare-apple-exact.sh macos bootstrap
+          echo "EXACT=$EXACT" >> "$GITHUB_ENV"
+      - name: Build and verify the macOS desktop app
+        working-directory: apps/apps
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR
+          CARGO_TARGET_DIR=$(mktemp -d "$RUNNER_TEMP/cargo-mac.XXXXXX")
+          start=$SECONDS
+          bun exact.mjs mac --release --json > "$RUNNER_TEMP/mac-result.json"
+          elapsed=$(( SECONDS - start ))
+          bundle=$(jq -er '.path' "$RUNNER_TEMP/mac-result.json")
+          plist="$bundle/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = dev.disposabl.fresh.traveldesk
+          binary="$bundle/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")"
+          xcrun lipo -verify_arch arm64 "$binary"
+          xcrun vtool -show-build "$binary" > "$RUNNER_TEMP/mac-build-version"
+          grep -Eiq '^[[:space:]]*platform[[:space:]]+MACOS[[:space:]]*$' "$RUNNER_TEMP/mac-build-version"
+          codesign --verify --deep --strict "$bundle"
+          printf 'Verified an arm64 macOS .app. Build took %ss.\n' "$elapsed"
+          printf 'Cold Travel Desk macOS desktop build: **%ss**\n' "$elapsed" >> "$GITHUB_STEP_SUMMARY"
